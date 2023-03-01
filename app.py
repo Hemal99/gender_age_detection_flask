@@ -9,13 +9,30 @@ import cv2
 import numpy as np
 import math
 import argparse
-from flask import Flask, render_template, Response, request
+from flask import Flask, render_template, Response, request, jsonify
 from PIL import Image
 import io
+from flask_cors import CORS
 
 UPLOAD_FOLDER = './UPLOAD_FOLDER'
+
 app = Flask(__name__)
+CORS(app)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+
+class VideoCamera(object):
+    def __init__(self):
+        self.video = cv2.VideoCapture(0)
+
+    def __del__(self):
+        self.video.release()
+
+    def get_frame(self):
+        ret, frame = self.video.read()
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        return jpeg.tobytes()
 
 
 def highlightFace(net, frame, conf_threshold=0.7):
@@ -67,6 +84,14 @@ The .prototxt file(s) which define the model architecture (i.e., the layers them
 The .caffemodel file which contains the weights for the actual layers
 Both files are required when using models trained using Caffe for deep learning.
 '''
+
+
+def gen(camera):
+    while True:
+        frame = camera.get_frame()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+
 
 def gen_frames():
     faceProto = "opencv_face_detector.pbtxt"
@@ -132,9 +157,91 @@ def gen_frames():
                 continue
 
             ret, encodedImg = cv2.imencode('.jpg', resultImg)
-            #resultImg = buffer.tobytes()
+            # resultImg = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+
+            # message = dict()
+            # message['gender'] = gender
+            # message['age'] = age[1:-1] + " Years"
+            # return message
+
+
+def detectAgeGender():
+    faceProto = "opencv_face_detector.pbtxt"
+    faceModel = "opencv_face_detector_uint8.pb"
+    ageProto = "age_deploy.prototxt"
+    ageModel = "age_net.caffemodel"
+    genderProto = "gender_deploy.prototxt"
+    genderModel = "gender_net.caffemodel"
+
+    MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
+    # Defining age range.
+    ageList = ['(0-2)', '(4-6)', '(8-12)', '(15-20)',
+               '(25-32)', '(38-43)', '(48-53)', '(60-100)']
+    genderList = ['Male', 'Female']
+
+    # LOAD NETWORK
+    faceNet = cv2.dnn.readNet(faceModel, faceProto)
+    ageNet = cv2.dnn.readNet(ageModel, ageProto)
+    genderNet = cv2.dnn.readNet(genderModel, genderProto)
+
+# Open a video file or an image file or a camera stream
+    video = cv2.VideoCapture(0)
+    padding = 20
+    while cv2.waitKey(1) < 0:
+        # Read frame
+        #hasFrame, frame = video.read()
+        # if not hasFrame:
+        # cv2.waitKey()
+        # break
+        hasFrame, frame = video.read()
+        if not hasFrame:
+            cv2.waitKey()
+            break
+
+        # It will detect the no. of faces in the frame
+        resultImg, faceBoxes = highlightFace(faceNet, frame)
+        if not faceBoxes:   # If no faces are detected
+            print("No face detected")   #
+
+        for faceBox in faceBoxes:
+            # print facebox
+            face = frame[max(0, faceBox[1]-padding):   # Face info is stored in this variable
+                         min(faceBox[3]+padding, frame.shape[0]-1), max(0, faceBox[0]-padding):min(faceBox[2]+padding, frame.shape[1]-1)]
+
+        # The dnn.blobFromImage takes care of pre-processing
+        # which includes setting the blob  dimensions and normalization.
+            blob = cv2.dnn.blobFromImage(
+                face, 1.0, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+            genderNet.setInput(blob)
+        # genderNet.forward method will detect the gender of each face detected
+            genderPreds = genderNet.forward()
+            gender = genderList[genderPreds[0].argmax()]
+            print(f'Gender: {gender}')  # print the gender in the console
+
+            ageNet.setInput(blob)
+        # ageNet.forward method will detect the age of the face detected
+            agePreds = ageNet.forward()
+            age = ageList[agePreds[0].argmax()]
+            print(f'Age: {age[1:-1]} years')    # print the age in the console
+
+        # Show the output frame
+            cv2.putText(resultImg, f'{gender}, {age}', (
+                faceBox[0], faceBox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+        #cv2.imshow("Detecting age and gender", resultImg)
+
+            if resultImg is None:
+                continue
+
+            ret, encodedImg = cv2.imencode('.jpg', resultImg)
+            #resultImg = buffer.tobytes()
+            # return (b'--frame\r\n'
+            #         b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+            message = dict()
+            message['gender'] = gender
+            message['age'] = age[1:-1] + " Years"
+            return message
 
 
 def gen_frames_photo(img_file):
@@ -207,8 +314,12 @@ def gen_frames_photo(img_file):
 
             ret, encodedImg = cv2.imencode('.jpg', resultImg)
             #resultImg = buffer.tobytes()
-            return (b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+            # return (b'--frame\r\n'
+            #         b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
+            message = dict()
+            message['gender'] = gender
+            message['age'] = age[1:-1] + " Years"
+            return message
 
 
 @app.route('/')
@@ -216,14 +327,33 @@ def index():
     """Video streaming home page."""
     return render_template('index.html')
 
+
+# @app.route('/video_feed')
+# def video_feed():
+#     return Response(gen(VideoCamera()),
+#                     mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/detector')
+def detector():
+    # Video streaming route. Put this in the src attribute of an img tag
+    message = detectAgeGender()
+    print(message)
+    return message
+
+
 @app.route('/video_feed')
 def video_feed():
     # Video streaming route. Put this in the src attribute of an img tag
+    # message = gen_frames()
+    # print(message)
+    # return message
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 @app.route('/webcam')
 def webcam():
     return render_template('webcam.html')
+
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
@@ -232,8 +362,11 @@ def upload_file():
         img = Image.open(io.BytesIO(f))
         img_ip = np.asarray(img, dtype="uint8")
         print(img_ip)
-        return Response(gen_frames_photo(img_ip), mimetype='multipart/x-mixed-replace; boundary=frame')
+        message = gen_frames_photo(img_ip)
+        print(message)
+        return message
         # return 'file uploaded successfully'
+
 
 if __name__ == '__main__':
     app.run(debug=True)
