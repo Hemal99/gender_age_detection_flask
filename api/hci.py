@@ -13,6 +13,16 @@ from flask import Flask, render_template, Response, request, jsonify
 from PIL import Image
 import io
 from flask_cors import CORS
+from flask import Blueprint, request, jsonify
+from db import add_user
+from api.utils import expect
+from datetime import datetime
+
+
+hci_api_v1 = Blueprint(
+    'hci_api_v1', 'hci_api_v1', url_prefix='/api/v1/hci')
+
+CORS(hci_api_v1)
 
 UPLOAD_FOLDER = './UPLOAD_FOLDER'
 
@@ -151,7 +161,7 @@ def gen_frames():
         # Show the output frame
             cv2.putText(resultImg, f'{gender}, {age}', (
                 faceBox[0], faceBox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-        #cv2.imshow("Detecting age and gender", resultImg)
+        # cv2.imshow("Detecting age and gender", resultImg)
 
             if resultImg is None:
                 continue
@@ -191,7 +201,7 @@ def detectAgeGender():
     padding = 20
     while cv2.waitKey(1) < 0:
         # Read frame
-        #hasFrame, frame = video.read()
+        # hasFrame, frame = video.read()
         # if not hasFrame:
         # cv2.waitKey()
         # break
@@ -229,13 +239,13 @@ def detectAgeGender():
         # Show the output frame
             cv2.putText(resultImg, f'{gender}, {age}', (
                 faceBox[0], faceBox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-        #cv2.imshow("Detecting age and gender", resultImg)
+        # cv2.imshow("Detecting age and gender", resultImg)
 
             if resultImg is None:
                 continue
 
             ret, encodedImg = cv2.imencode('.jpg', resultImg)
-            #resultImg = buffer.tobytes()
+            # resultImg = buffer.tobytes()
             # return (b'--frame\r\n'
             #         b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
             message = dict()
@@ -266,14 +276,14 @@ def gen_frames_photo(img_file):
 # Open a video file or an image file or a camera stream
 
     frame = cv2.cvtColor(img_file, cv2.COLOR_BGR2RGB)
-    #frame = img_file
-    #hasFrame, frame = img_file.read()
-    #ret, frame = cv2.imencode('.jpg', img_file)
-    #video = cv2.VideoCapture(img_file)
+    # frame = img_file
+    # hasFrame, frame = img_file.read()
+    # ret, frame = cv2.imencode('.jpg', img_file)
+    # video = cv2.VideoCapture(img_file)
     padding = 20
     while cv2.waitKey(1) < 0:
         # Read frame
-        #hasFrame, frame = video.read()
+        # hasFrame, frame = video.read()
         # if not hasFrame:
         # cv2.waitKey()
         # break
@@ -307,13 +317,13 @@ def gen_frames_photo(img_file):
         # Show the output frame
             cv2.putText(resultImg, f'{gender}, {age}', (
                 faceBox[0], faceBox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-        #cv2.imshow("Detecting age and gender", resultImg)
+        # cv2.imshow("Detecting age and gender", resultImg)
 
             if resultImg is None:
                 continue
 
             ret, encodedImg = cv2.imencode('.jpg', resultImg)
-            #resultImg = buffer.tobytes()
+            # resultImg = buffer.tobytes()
             # return (b'--frame\r\n'
             #         b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImg) + b'\r\n')
             message = dict()
@@ -333,7 +343,7 @@ def index():
 #     return Response(gen(VideoCamera()),
 #                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/detector')
+@hci_api_v1.route('/detector', methods=["GET"])
 def detector():
     # Video streaming route. Put this in the src attribute of an img tag
     message = detectAgeGender()
@@ -341,7 +351,7 @@ def detector():
     return message
 
 
-@app.route('/video_feed')
+@hci_api_v1.route('/video_feed')
 def video_feed():
     # Video streaming route. Put this in the src attribute of an img tag
     # message = gen_frames()
@@ -368,5 +378,17 @@ def upload_file():
         # return 'file uploaded successfully'
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# if __name__ == '__main__':
+  #  app.run(debug=True)
+@hci_api_v1.route('/user', methods=["POST"])
+def api_add_user():
+    post_data = request.get_json()
+    try:
+
+        age = post_data.age
+        gender = post_data.gender
+        add_user(gender, age)
+        return jsonify({"success"}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    # Video streaming route. Put this in the src attribute of an img tag
